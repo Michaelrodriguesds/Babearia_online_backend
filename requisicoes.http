@@ -1,0 +1,114 @@
+### =====================================================================
+### Testes manuais da API — instale a extensão "REST Client" no VS Code
+### e clique em "Send Request" acima de cada bloco.
+### Depois do login, copie o token e cole em @token abaixo.
+### =====================================================================
+
+@api = http://localhost:3000
+@token = COLE_AQUI_O_TOKEN_DO_BARBEIRO
+@tokenAdmin = COLE_AQUI_O_TOKEN_DO_ADMIN
+@slug = barbearia-do-ze
+
+### Saúde da API
+GET {{api}}/health
+
+### 1) Barbeiro cria a conta (já ganha 30 dias grátis)
+POST {{api}}/auth/cadastro
+Content-Type: application/json
+
+{
+  "nomeBarbearia": "Barbearia do Zé",
+  "nome": "José",
+  "email": "ze@exemplo.com",
+  "senha": "senhaforte123",
+  "whatsapp": "21999998888"
+}
+
+### 2) Login
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "ze@exemplo.com", "senha": "senhaforte123" }
+
+### 3) Cadastrar a chave Pix (modo manual)
+PUT {{api}}/painel/pagamento
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "modo": "manual", "chavePix": "+5521999998888", "nomeRecebedor": "JOSE DA SILVA", "cidade": "RIO DE JANEIRO" }
+
+### 4) Regras e horários da barbearia
+PUT {{api}}/painel/barbearia
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "endereco": "Rua Exemplo, 123 - Centro",
+  "regras": { "cobranca": "sinal", "sinalTipo": "percentual", "sinalValor": 50, "minutosParaPagar": 15 },
+  "horarios": [
+    { "dia": 2, "abre": "09:00", "fecha": "19:00", "pausaInicio": "12:00", "pausaFim": "13:00" },
+    { "dia": 3, "abre": "09:00", "fecha": "19:00", "pausaInicio": "12:00", "pausaFim": "13:00" },
+    { "dia": 4, "abre": "09:00", "fecha": "19:00", "pausaInicio": "12:00", "pausaFim": "13:00" },
+    { "dia": 5, "abre": "09:00", "fecha": "20:00" },
+    { "dia": 6, "abre": "08:00", "fecha": "18:00" }
+  ]
+}
+
+### 5) Criar serviço
+POST {{api}}/painel/servicos
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "nome": "Corte + Barba", "preco": 60, "duracaoMinutos": 45 }
+
+### 6) Página pública (o que o cliente vê) — pegue o _id do serviço aqui
+GET {{api}}/publico/{{slug}}
+
+### 7) Horários livres (troque servicoId e a data)
+GET {{api}}/publico/{{slug}}/disponibilidade?servicoId=COLE_ID_DO_SERVICO&data=2026-10-27
+
+### 8) Cliente agenda (use um "inicio" que veio da disponibilidade)
+POST {{api}}/publico/{{slug}}/agendamentos
+Content-Type: application/json
+
+{
+  "servicoId": "COLE_ID_DO_SERVICO",
+  "inicio": "2026-10-27T10:00:00.000-03:00",
+  "nome": "Carlos",
+  "whatsapp": "21988887777"
+}
+
+### 9) Agenda do barbeiro (paginada)
+GET {{api}}/painel/agendamentos?data=2026-10-27
+Authorization: Bearer {{token}}
+
+### 10) Barbeiro confirma o Pix (modo manual)
+POST {{api}}/painel/agendamentos/COLE_ID_DO_AGENDAMENTO/confirmar
+Authorization: Bearer {{token}}
+
+### 11) Resumo do painel
+GET {{api}}/painel/resumo
+Authorization: Bearer {{token}}
+
+### ===================== ADMIN (você) =====================
+
+### Login do admin (crie antes com: npm run criar-admin -- email senha)
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "seu@email.com", "senha": "SuaSenhaForte123" }
+
+### Todas as barbearias e situação do plano
+GET {{api}}/admin/barbearias
+Authorization: Bearer {{tokenAdmin}}
+
+### Só as vencidas
+GET {{api}}/admin/barbearias?situacao=vencido
+Authorization: Bearer {{tokenAdmin}}
+
+### Recebeu o pagamento? Renova +30 dias
+POST {{api}}/admin/barbearias/COLE_ID_DA_BARBEARIA/renovar
+Authorization: Bearer {{tokenAdmin}}
+Content-Type: application/json
+
+{ "dias": 30, "observacao": "Pix recebido em 24/10" }
