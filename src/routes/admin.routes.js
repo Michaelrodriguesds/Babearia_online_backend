@@ -3,7 +3,8 @@ const { Router } = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const { z } = require('zod');
-const { Barbearia, Usuario, Relato, PushInscricao } = require('../models');
+const { Barbearia, Usuario, Relato, PushInscricao, Servico, Agendamento, Slot, Cliente } = require('../models');
+const { invalidar } = require('../utils/cache');
 const { exigirLogin, exigirAdmin } = require('../middlewares/auth');
 const { validar } = require('../middlewares/validar');
 const { statusLicenca, renovar, bloquearAgora } = require('../services/licenca');
@@ -66,6 +67,32 @@ router.post('/barbearias/:id/resetar-senha', validar(z.object({ novaSenha: z.str
   );
   if (!r.matchedCount) throw new ErroApp(404, 'Usuário da barbearia não encontrado.');
   res.json({ ok: true });
+});
+
+// Exclui a barbearia e TUDO dela (agenda, serviços, clientes, login do barbeiro).
+// Não tem volta. Para confirmar, é preciso mandar o nome exato da barbearia.
+router.post('/barbearias/:id/excluir', validar(z.object({ confirmacao: z.string().trim().min(1) })), async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) throw new ErroApp(400, 'Identificador inválido.');
+  const b = await Barbearia.findById(req.params.id).select('nome slug').lean();
+  if (!b) throw new ErroApp(404, 'Barbearia não encontrada.');
+  const igual = (t) => t.trim().toLocaleLowerCase('pt-BR');
+  if (igual(req.validado.confirmacao) !== igual(b.nome)) {
+    throw new ErroApp(400, `O nome digitado não confere. Digite exatamente: ${b.nome}`);
+  }
+  const filtro = { barbeariaId: b._id };
+  const [agendamentos, servicos, clientes, usuarios] = await Promise.all([
+    Agendamento.deleteMany(filtro), Servico.deleteMany(filtro), Cliente.deleteMany(filtro),
+    Usuario.deleteMany({ barbeariaId: b._id, papel: 'dono' }), Slot.deleteMany(filtro), PushInscricao.deleteMany(filtro),
+  ]);
+  await Barbearia.deleteOne({ _id: b._id });
+  invalidar(`licenca:${b._id}`);
+  invalidar(`publico:${b.slug}`);
+  // Os relatos ficam guardados (são histórico de bugs), só perdem o vínculo
+  await Relato.updateMany(filtro, { $set: { barbeariaId: null } });
+  res.json({
+    ok: true,
+    excluidos: { agendamentos: agendamentos.deletedCount, servicos: servicos.deletedCount, clientes: clientes.deletedCount, usuarios: usuarios.deletedCount },
+  });
 });
 
 // ---------- Relatos (bugs, erros e sugestões) ----------

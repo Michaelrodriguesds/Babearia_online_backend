@@ -39,6 +39,7 @@ const agendamentoSchema = new Schema(
       mpPaymentId: String,
       pixCopiaCola: String,
       pagoEm: Date,
+      informadoEm: Date, // cliente tocou em "Já fiz o Pix" (modo chave Pix: o barbeiro confere e confirma)
       confirmadoPor: { type: String, enum: ['webhook', 'barbeiro', null], default: null },
     },
 

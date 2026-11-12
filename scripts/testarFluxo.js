@@ -75,7 +75,26 @@ async function main() {
     const atrasado = await servicoAgenda.confirmarPagamento(r2.id, { por: 'webhook' });
     conferir(atrasado.status === 'confirmado', 'Pix pago atrasado recuperou o horário (estava livre)');
 
-    console.log('\n5) Licença');
+    console.log('\n5) Cliente avisa que já fez o Pix (modo chave Pix)');
+    const livres3 = await horariosLivres(b, 30, data);
+    const r3 = await servicoAgenda.criarAgendamento(b, { servicoId: servico._id, inicio: livres3[3].inicio, nome: 'Cliente D', whatsapp: '21944440000' });
+    await servicoAgenda.informarPagamento(await Agendamento.findById(r3.id));
+    const ag3 = await Agendamento.findById(r3.id).lean();
+    conferir(Boolean(ag3.pagamento.informadoEm) && ag3.status === 'pendente', 'pagamento informado e reserva continua aguardando o barbeiro');
+    conferir(new Date(ag3.expiraEm) >= new Date(ag3.inicio), 'reserva não expira antes do horário do atendimento');
+    await liberarExpirados(b._id);
+    conferir((await Agendamento.findById(r3.id).lean()).status === 'pendente', 'a limpeza de reservas vencidas não derruba quem já pagou');
+    const conf3 = await servicoAgenda.confirmarPagamento(r3.id, { por: 'barbeiro' });
+    conferir(conf3.status === 'confirmado', 'barbeiro confirma depois do prazo original sem problema');
+
+    console.log('\n6) Barbeiro confirma uma reserva que já tinha expirado');
+    const r4 = await servicoAgenda.criarAgendamento(b, { servicoId: servico._id, inicio: livres3[6].inicio, nome: 'Cliente E', whatsapp: '21955550000' });
+    await Agendamento.updateOne({ _id: r4.id }, { $set: { expiraEm: new Date(Date.now() - 1000) } });
+    await liberarExpirados(b._id);
+    const conf4 = await servicoAgenda.confirmarPagamento(r4.id, { por: 'barbeiro' });
+    conferir(conf4.status === 'confirmado', 'reserva expirada volta a ficar confirmada (horário estava livre)');
+
+    console.log('\n7) Licença');
     await Barbearia.updateOne({ _id: b._id }, { $set: { 'licenca.acessoAte': new Date(Date.now() - 1000) } });
     const vencida = await Barbearia.findById(b._id).select('licenca').lean();
     conferir(!statusLicenca(vencida.licenca).ativa, 'plano vencido = bloqueado automaticamente');

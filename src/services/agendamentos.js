@@ -179,6 +179,27 @@ async function confirmarPagamento(agendamentoId, { por, mpPaymentId } = {}) {
   return ag;
 }
 
+/**
+ * Cliente avisa que já fez o Pix (modo chave Pix, sem confirmação automática).
+ * A reserva para de expirar: fica segura até o horário do atendimento (no mínimo
+ * 1 hora), e o barbeiro recebe um aviso para conferir e confirmar.
+ * Pode ser chamado mais de uma vez sem problema.
+ */
+async function informarPagamento(ag) {
+  if (ag.status !== 'pendente') throw new ErroApp(409, `Este agendamento já está ${ag.status}.`);
+  if (ag.pagamento?.informadoEm) return ag;
+  const segurarAte = Math.max(new Date(ag.inicio).getTime(), Date.now() + 60 * 60 * 1000);
+  const r = await Agendamento.updateOne(
+    { _id: ag._id, status: 'pendente' },
+    { $set: { 'pagamento.informadoEm': new Date(), expiraEm: new Date(segurarAte) } }
+  );
+  if (!r.modifiedCount) throw new ErroApp(409, 'Este agendamento mudou de situação. Atualize a página.');
+  const atualizado = await Agendamento.findById(ag._id);
+  const barbearia = await Barbearia.findById(ag.barbeariaId).select('nome slug whatsapp').lean();
+  notificar.avisoBarbeiro(barbearia, atualizado, 'Cliente informou que pagou o Pix: confira e confirme');
+  return atualizado;
+}
+
 /** Cancela e libera o horário */
 async function cancelarAgendamento(ag, por) {
   if (!['pendente', 'confirmado'].includes(ag.status)) {
@@ -226,5 +247,5 @@ async function removerBloqueio(barbeariaId, id) {
 }
 
 module.exports = {
-  criarAgendamento, confirmarPagamento, cancelarAgendamento, criarBloqueio, removerBloqueio, calcularCobranca,
+  criarAgendamento, confirmarPagamento, informarPagamento, cancelarAgendamento, criarBloqueio, removerBloqueio, calcularCobranca,
 };

@@ -28,8 +28,16 @@ router.get('/agendamentos/:id', async (req, res) => {
     id: ag._id, status: ag.status, servico: ag.servicoNome, inicio: ag.inicio, fim: ag.fim,
     valorTotal: ag.valorTotal, valorCobrado: ag.valorCobrado, expiraEm: ag.expiraEm,
     clienteNome: ag.clienteNome,
+    pagamentoInformado: Boolean(ag.pagamento?.informadoEm),
     pix: ag.status === 'pendente' ? { copiaCola: ag.pagamento?.pixCopiaCola || null, modo: ag.pagamento?.modo } : null,
   });
+});
+
+// Cliente avisa que já fez o Pix (para o contador e avisa o barbeiro)
+router.post('/agendamentos/:id/informar-pagamento', validar(z.object({ codigo: z.string().min(10) })), async (req, res) => {
+  const ag = await agendamentoComCodigo(req.params.id, req.validado.codigo);
+  const atualizado = await agendamentos.informarPagamento(ag);
+  res.json({ status: atualizado.status, pagamentoInformado: true, expiraEm: atualizado.expiraEm });
 });
 
 router.post('/agendamentos/:id/cancelar', validar(z.object({ codigo: z.string().min(10) })), async (req, res) => {

@@ -185,7 +185,7 @@ router.get('/agendamentos', validar(listaSchema, 'query'), async (req, res) => {
 
   const [itens, total] = await Promise.all([
     Agendamento.find(filtro)
-      .select('tipo servicoNome clienteNome clienteWhatsapp motivo inicio fim valorTotal valorCobrado status expiraEm pagamento.modo pagamento.pagoEm')
+      .select('tipo servicoNome clienteNome clienteWhatsapp motivo inicio fim valorTotal valorCobrado status expiraEm pagamento.modo pagamento.pagoEm pagamento.informadoEm')
       .sort({ inicio: 1 })
       .skip((pagina - 1) * limite)
       .limit(limite)
