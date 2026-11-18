@@ -114,7 +114,7 @@ Abra `requisicoes.http` no VS Code (extensão **REST Client**) e teste rota por 
 |---|---|---|
 | POST | `/auth/cadastro` · `/auth/login` · `/auth/trocar-senha` | todos |
 | GET | `/publico/:slug` | cliente |
-| GET | `/publico/:slug/disponibilidade?servicoId=&data=AAAA-MM-DD` | cliente |
+| GET | `/publico/:slug/disponibilidade?servicoIds=id1,id2&data=AAAA-MM-DD` | cliente |
 | POST | `/publico/:slug/agendamentos` | cliente |
 | GET | `/publico/agendamentos/:id?c=codigo` (tela do Pix consulta se já pagou) | cliente |
 | POST | `/publico/agendamentos/:id/cancelar` | cliente |

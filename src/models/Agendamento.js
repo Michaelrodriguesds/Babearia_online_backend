@@ -17,7 +17,8 @@ const agendamentoSchema = new Schema(
     barbeiroId: { type: Schema.Types.ObjectId, default: null }, // reservado para planos com mais barbeiros
     tipo: { type: String, enum: ['cliente', 'bloqueio'], default: 'cliente' },
 
-    servicoId: { type: Schema.Types.ObjectId, ref: 'Servico' },
+    servicoId: { type: Schema.Types.ObjectId, ref: 'Servico' }, // primeiro serviço (compatibilidade)
+    servicoIds: [{ type: Schema.Types.ObjectId, ref: 'Servico' }], // todos os serviços do agendamento
     clienteId: { type: Schema.Types.ObjectId, ref: 'Cliente' },
     // cópias para não precisar de consultas extras ao listar
     servicoNome: String,

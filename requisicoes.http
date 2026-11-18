@@ -65,14 +65,14 @@ Content-Type: application/json
 GET {{api}}/publico/{{slug}}
 
 ### 7) Horários livres (troque servicoId e a data)
-GET {{api}}/publico/{{slug}}/disponibilidade?servicoId=COLE_ID_DO_SERVICO&data=2026-10-27
+GET {{api}}/publico/{{slug}}/disponibilidade?servicoIds=COLE_ID_DO_SERVICO,OUTRO_ID_OPCIONAL&data=2026-10-27
 
 ### 8) Cliente agenda (use um "inicio" que veio da disponibilidade)
 POST {{api}}/publico/{{slug}}/agendamentos
 Content-Type: application/json
 
 {
-  "servicoId": "COLE_ID_DO_SERVICO",
+  "servicoIds": ["COLE_ID_DO_SERVICO", "OUTRO_ID_OPCIONAL"],
   "inicio": "2026-10-27T10:00:00.000-03:00",
   "nome": "Carlos",
   "whatsapp": "21988887777"

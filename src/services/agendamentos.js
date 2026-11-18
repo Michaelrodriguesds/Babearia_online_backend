@@ -7,6 +7,7 @@ const { gerarCobranca } = require('./pix');
 const notificar = require('./notificacoes');
 const { ErroApp, ehDuplicado } = require('../utils/erros');
 const { normalizarTelefone } = require('../utils/formatos');
+const { somarPrecos, calcularCobranca } = require('../utils/dinheiro');
 const { fuso, frontendUrls } = require('../config/env');
 
 // Ocupa os blocos de 15 min. Se QUALQUER bloco já estiver ocupado, o índice
@@ -23,15 +24,6 @@ async function reservarBlocos(barbeariaId, agendamentoId, inicio, fim) {
   }
 }
 
-// Quanto cobrar no Pix conforme a regra da barbearia
-function calcularCobranca(regras, preco) {
-  if (regras.cobranca === 'local') return 0;
-  if (regras.cobranca === 'sinal') {
-    const sinal = regras.sinalTipo === 'fixo' ? Math.min(regras.sinalValor, preco) : (preco * regras.sinalValor) / 100;
-    return Math.round(sinal * 100) / 100;
-  }
-  return preco;
-}
 
 async function salvarCliente(barbeariaId, nome, whatsapp, email) {
   const filtro = { barbeariaId, whatsapp };
@@ -48,22 +40,48 @@ function linkCancelamento(barbearia, agendamentoId, codigo) {
   return `${frontendUrls[0]}/b/${barbearia.slug}/cancelar/${agendamentoId}?c=${codigo}`;
 }
 
-/** Cliente agenda pela página pública */
-async function criarAgendamento(barbearia, { servicoId, inicio, nome, whatsapp, email }) {
-  const servico = await Servico.findOne({ _id: servicoId, barbeariaId: barbearia._id, ativo: true }).lean();
-  if (!servico) throw new ErroApp(404, 'Serviço não encontrado.');
+const MAX_SERVICOS = 10;
+const MAX_MINUTOS = 480; // 8 horas
+
+/**
+ * Busca os serviços escolhidos e soma tempo e preço (preço somado em centavos).
+ * Aceita uma lista de ids; ids repetidos contam uma vez só. Mantém a ordem escolhida.
+ */
+async function carregarServicos(barbeariaId, servicoIds) {
+  const ids = [...new Set((servicoIds || []).map(String))];
+  if (!ids.length) throw new ErroApp(400, 'Escolha pelo menos um serviço.');
+  if (ids.length > MAX_SERVICOS) throw new ErroApp(400, `Escolha no máximo ${MAX_SERVICOS} serviços por horário.`);
+  const encontrados = await Servico.find({ _id: { $in: ids }, barbeariaId, ativo: true }).lean();
+  if (encontrados.length !== ids.length) {
+    throw new ErroApp(404, 'Um dos serviços escolhidos não está mais disponível. Atualize a página e escolha de novo.');
+  }
+  const porId = new Map(encontrados.map((x) => [String(x._id), x]));
+  const servicos = ids.map((id) => porId.get(id));
+  const duracaoMinutos = servicos.reduce((t, x) => t + x.duracaoMinutos, 0);
+  if (duracaoMinutos > MAX_MINUTOS) throw new ErroApp(400, 'Os serviços escolhidos passam de 8 horas. Escolha menos serviços.');
+  return {
+    servicos,
+    duracaoMinutos,
+    preco: somarPrecos(servicos.map((x) => x.preco)),
+    nome: servicos.map((x) => x.nome).join(' + '),
+  };
+}
+
+/** Cliente agenda pela página pública (um ou vários serviços) */
+async function criarAgendamento(barbearia, { servicoIds, inicio, nome, whatsapp, email }) {
+  const escolha = await carregarServicos(barbearia._id, servicoIds);
 
   const dtInicio = DateTime.fromISO(inicio, { zone: fuso });
   if (!dtInicio.isValid) throw new ErroApp(400, 'Horário inválido.');
 
-  // Confere se o horário pedido realmente está livre e dentro das regras
-  const livres = await horariosLivres(barbearia, servico.duracaoMinutos, dtInicio.toISODate());
+  // Confere se o horário pedido está livre com o tempo de TODOS os serviços somados
+  const livres = await horariosLivres(barbearia, escolha.duracaoMinutos, dtInicio.toISODate());
   const disponivel = livres.some((l) => DateTime.fromISO(l.inicio).toMillis() === dtInicio.toMillis());
   if (!disponivel) throw new ErroApp(409, 'Esse horário não está mais disponível. Escolha outro.');
 
   const inicioData = dtInicio.toJSDate();
-  const fimData = dtInicio.plus({ minutes: servico.duracaoMinutos }).toJSDate();
-  const valorCobrado = calcularCobranca(barbearia.regras, servico.preco);
+  const fimData = dtInicio.plus({ minutes: escolha.duracaoMinutos }).toJSDate();
+  const valorCobrado = calcularCobranca(barbearia.regras, escolha.preco);
   const pagaNoLocal = valorCobrado <= 0;
   const telefone = normalizarTelefone(whatsapp);
   const codigo = crypto.randomBytes(12).toString('hex');
@@ -73,14 +91,15 @@ async function criarAgendamento(barbearia, { servicoId, inicio, nome, whatsapp, 
   const ag = await Agendamento.create({
     barbeariaId: barbearia._id,
     tipo: 'cliente',
-    servicoId: servico._id,
-    servicoNome: servico.nome,
+    servicoId: escolha.servicos[0]._id,
+    servicoIds: escolha.servicos.map((x) => x._id),
+    servicoNome: escolha.nome,
     clienteId: cliente._id,
     clienteNome: cliente.nome,
     clienteWhatsapp: telefone,
     inicio: inicioData,
     fim: fimData,
-    valorTotal: servico.preco,
+    valorTotal: escolha.preco,
     valorCobrado,
     status: pagaNoLocal ? 'confirmado' : 'pendente',
     expiraEm: pagaNoLocal ? undefined : new Date(Date.now() + barbearia.regras.minutosParaPagar * 60 * 1000),
@@ -122,7 +141,7 @@ async function criarAgendamento(barbearia, { servicoId, inicio, nome, whatsapp, 
   return {
     id: ag._id,
     status: ag.status,
-    servico: servico.nome,
+    servico: escolha.nome,
     inicio: ag.inicio,
     fim: ag.fim,
     valorTotal: ag.valorTotal,
@@ -247,5 +266,5 @@ async function removerBloqueio(barbeariaId, id) {
 }
 
 module.exports = {
-  criarAgendamento, confirmarPagamento, informarPagamento, cancelarAgendamento, criarBloqueio, removerBloqueio, calcularCobranca,
+  carregarServicos, criarAgendamento, confirmarPagamento, informarPagamento, cancelarAgendamento, criarBloqueio, removerBloqueio, calcularCobranca,
 };

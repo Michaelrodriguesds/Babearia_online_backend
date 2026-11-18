@@ -18,7 +18,7 @@ async function gerarCobranca(barbearia, agendamento, emailCliente) {
     const pix = await mercadoPago.criarPix({
       accessToken: descriptografar(cripto),
       valor: agendamento.valorCobrado,
-      descricao: `${agendamento.servicoNome} - ${barbearia.nome}`,
+      descricao: `${agendamento.servicoNome} - ${barbearia.nome}`.slice(0, 200),
       referencia: String(agendamento._id),
       emailPagador: emailCliente || pagadorEmailPadrao,
       expiraEm: DateTime.fromJSDate(agendamento.expiraEm).setZone(fuso).toISO(),

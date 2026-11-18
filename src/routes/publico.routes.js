@@ -80,26 +80,42 @@ router.get('/:slug', carregarBarbearia, exigirAgendaAtiva, async (req, res) => {
   });
 });
 
-const dispSchema = z.object({ servicoId: z.string().length(24), data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) });
+const ID = /^[0-9a-f]{24}$/i;
+// Aceita "servicoIds=id1,id2" (vários) ou o antigo "servicoId=id" (um só)
+const listaDeIds = z.string().transform((t) => t.split(',').map((x) => x.trim()).filter(Boolean))
+  .refine((l) => l.length >= 1 && l.length <= 10 && l.every((x) => ID.test(x)), 'Serviços inválidos');
+const dispSchema = z.object({
+  servicoIds: listaDeIds.optional(),
+  servicoId: z.string().regex(ID).optional(),
+  data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+}).refine((q) => q.servicoIds || q.servicoId, 'Escolha pelo menos um serviço');
 
-// Horários livres: SEM cache, sempre consulta o banco (precisa estar exato)
+// Horários livres: SEM cache, sempre consulta o banco (precisa estar exato).
+// Usa o tempo de TODOS os serviços escolhidos somados.
 router.get('/:slug/disponibilidade', carregarBarbearia, exigirAgendaAtiva, validar(dispSchema, 'query'), async (req, res) => {
-  const { servicoId, data } = req.validado;
-  const servico = await Servico.findOne({ _id: servicoId, barbeariaId: req.barbearia._id, ativo: true }).select('duracaoMinutos').lean();
-  if (!servico) throw new ErroApp(404, 'Serviço não encontrado.');
-  res.json({ data, horarios: await horariosLivres(req.barbearia, servico.duracaoMinutos, data) });
+  const { servicoIds, servicoId, data } = req.validado;
+  const escolha = await agendamentos.carregarServicos(req.barbearia._id, servicoIds || [servicoId]);
+  res.json({
+    data,
+    duracaoMinutos: escolha.duracaoMinutos,
+    precoTotal: escolha.preco,
+    valorPix: agendamentos.calcularCobranca(req.barbearia.regras, escolha.preco),
+    horarios: await horariosLivres(req.barbearia, escolha.duracaoMinutos, data),
+  });
 });
 
 const agendarSchema = z.object({
-  servicoId: z.string().length(24),
+  servicoIds: z.array(z.string().regex(ID)).min(1).max(10).optional(),
+  servicoId: z.string().regex(ID).optional(), // versão antiga do app (um serviço)
   inicio: z.string().min(16), // ISO, ex.: 2026-10-25T14:00:00.000-03:00 (use o "inicio" da disponibilidade)
   nome: z.string().trim().min(2).max(80),
   whatsapp: z.string().regex(/^[\d\s()+-]{10,20}$/, 'WhatsApp inválido'),
   email: z.string().trim().email().optional(),
-});
+}).refine((d) => d.servicoIds || d.servicoId, { message: 'Escolha pelo menos um serviço', path: ['servicoIds'] });
 
 router.post('/:slug/agendamentos', limiteAgendar, carregarBarbearia, exigirAgendaAtiva, validar(agendarSchema), async (req, res) => {
-  const resultado = await agendamentos.criarAgendamento(req.barbearia, req.validado);
+  const { servicoId, servicoIds, ...resto } = req.validado;
+  const resultado = await agendamentos.criarAgendamento(req.barbearia, { ...resto, servicoIds: servicoIds || [servicoId] });
   res.status(201).json({
     ...resultado,
     inicioFormatado: DateTime.fromJSDate(resultado.inicio).setZone(fuso).setLocale('pt-BR').toFormat("cccc, dd 'de' LLLL 'às' HH:mm"),

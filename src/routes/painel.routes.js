@@ -84,6 +84,13 @@ const barbeariaSchema = z.object({
 
 router.put('/barbearia', validar(barbeariaSchema), async (req, res) => {
   const { regras, whatsapp, ...resto } = req.validado;
+  if (regras && ('sinalValor' in regras || 'sinalTipo' in regras)) {
+    const atual = await Barbearia.findById(bid(req)).select('regras').lean();
+    const juntas = { ...(atual?.regras || {}), ...regras };
+    if (juntas.sinalTipo === 'percentual' && juntas.sinalValor > 100) {
+      throw new ErroApp(400, 'O sinal em porcentagem vai de 0 a 100%.');
+    }
+  }
   const $set = { ...resto };
   if (whatsapp) $set.whatsapp = normalizarTelefone(whatsapp);
   for (const [chave, valor] of Object.entries(regras || {})) $set[`regras.${chave}`] = valor;
