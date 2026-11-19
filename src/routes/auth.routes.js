@@ -15,7 +15,7 @@ const router = Router();
 const SLUGS_RESERVADOS = ['agendamentos', 'admin', 'api', 'painel', 'login', 'cadastro'];
 
 async function slugDisponivel(nome, tipo = 'barbearia') {
-  const base = gerarSlug(nome) || tipo;
+  const base = gerarSlug(nome) || (tipo === 'outro' ? 'agenda' : tipo);
   let slug = SLUGS_RESERVADOS.includes(base) ? `${base}-1` : base;
   for (let n = 2; await Barbearia.exists({ slug }); n++) slug = `${base}-${n}`;
   return slug;
@@ -27,7 +27,9 @@ const cadastroSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   senha: z.string().min(8, 'A senha precisa ter pelo menos 8 caracteres').max(100),
   whatsapp: z.string().regex(/^[\d\s()+-]{10,20}$/, 'WhatsApp inválido'),
-  tipo: z.enum(['barbearia', 'salao']).default('barbearia'),
+  tipo: z.enum(['barbearia', 'salao', 'outro']).default('barbearia'),
+  tipoNome: z.string().trim().max(40).optional(),
+  icone: z.enum([...['poste', 'brilho', 'tesoura', 'flor', 'massagem', 'tatuagem', 'pet', 'academia', 'saude', 'foto', 'calendario'], '']).optional(),
 });
 
 // Cadastro: já começa com o mês grátis
@@ -39,6 +41,8 @@ router.post('/cadastro', limiteLogin, validar(cadastroSchema), async (req, res) 
     nome: d.nomeBarbearia,
     slug: await slugDisponivel(d.nomeBarbearia, d.tipo),
     tipo: d.tipo,
+    tipoNome: d.tipo === 'outro' ? d.tipoNome || '' : '',
+    icone: d.icone || '',
     whatsapp: normalizarTelefone(d.whatsapp),
     licenca: { plano: 'teste', acessoAte: new Date(Date.now() + diasTeste * DIA_MS) },
   });
@@ -57,7 +61,7 @@ router.post('/cadastro', limiteLogin, validar(cadastroSchema), async (req, res) 
 
   res.status(201).json({
     token: gerarToken(usuario),
-    barbearia: { id: barbearia._id, nome: barbearia.nome, slug: barbearia.slug, tipo: barbearia.tipo },
+    barbearia: { id: barbearia._id, nome: barbearia.nome, slug: barbearia.slug, tipo: barbearia.tipo, tipoNome: barbearia.tipoNome, icone: barbearia.icone },
     licenca: statusLicenca(barbearia.licenca),
   });
 });

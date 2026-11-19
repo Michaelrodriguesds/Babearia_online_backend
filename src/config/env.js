@@ -22,7 +22,7 @@ module.exports = {
   mongoUri: obrigatoria('MONGODB_URI'),
   jwtSecret: obrigatoria('JWT_SECRET'),
   chaveCriptografia,
-  frontendUrls: (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map((u) => u.trim()),
+  frontendUrls: (process.env.FRONTEND_URL || 'http://localhost:5173').split(',').map((u) => u.trim().replace(/\/+$/, '')).filter(Boolean),
   apiUrl: (process.env.API_URL || 'http://localhost:3000').replace(/\/$/, ''),
   fuso: 'America/Sao_Paulo',
   diasTeste: Number(process.env.DIAS_TESTE) || 30,

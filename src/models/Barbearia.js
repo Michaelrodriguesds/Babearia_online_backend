@@ -28,7 +28,10 @@ const barbeariaSchema = new Schema(
     logoUrl: { type: String, default: '' },
     corPrimaria: { type: String, default: '#111827' },
     // Tipo de negócio: muda só o visual e as palavras (a lógica é a mesma)
-    tipo: { type: String, enum: ['barbearia', 'salao'], default: 'barbearia' },
+    tipo: { type: String, enum: ['barbearia', 'salao', 'outro'], default: 'barbearia' },
+    tipoNome: { type: String, trim: true, maxlength: 40, default: '' }, // "outro": o dono escreve (ex.: Estúdio de tatuagem)
+    // ícone da aba e do app no celular (mesma lista de frontend/src/icones.js). Vazio = padrão do tipo
+    icone: { type: String, enum: [...['poste', 'brilho', 'tesoura', 'flor', 'massagem', 'tatuagem', 'pet', 'academia', 'saude', 'foto', 'calendario'], ''], default: '' },
 
     horarios: { type: [horarioSchema], default: horariosPadrao },
     folgas: { type: [String], default: [] }, // datas sem atendimento: 'AAAA-MM-DD'

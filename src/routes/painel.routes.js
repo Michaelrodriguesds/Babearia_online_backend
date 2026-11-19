@@ -65,7 +65,9 @@ const barbeariaSchema = z.object({
   endereco: z.string().max(200).optional(),
   logoUrl: z.string().url().or(z.literal('')).optional(),
   corPrimaria: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
-  tipo: z.enum(['barbearia', 'salao']).optional(),
+  tipo: z.enum(['barbearia', 'salao', 'outro']).optional(),
+  tipoNome: z.string().trim().max(40).optional(),
+  icone: z.enum([...['poste', 'brilho', 'tesoura', 'flor', 'massagem', 'tatuagem', 'pet', 'academia', 'saude', 'foto', 'calendario'], '']).optional(),
   horarios: z.array(horarioSchema).max(7).optional(),
   folgas: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(200).optional(),
   regras: z
@@ -173,7 +175,7 @@ const listaSchema = z.object({
   data: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   de: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   ate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  status: z.enum(['pendente', 'confirmado', 'cancelado', 'expirado', 'concluido', 'bloqueado', 'conflito']).optional(),
+  status: z.enum(['pendente', 'confirmado', 'cancelado', 'expirado', 'concluido', 'bloqueado', 'conflito', 'faltou']).optional(),
   pagina: z.coerce.number().int().min(1).default(1),
   limite: z.coerce.number().int().min(1).max(50).default(20),
 });

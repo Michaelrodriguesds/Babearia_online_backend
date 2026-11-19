@@ -31,7 +31,7 @@ function regraDesistencia(ag, regras) {
   else if (ag.status === 'confirmado') podeDesistir = horasAntes >= prazoHoras;
   return { prazoHoras, podeDesistir };
 }
-const textoNegocio = (b) => (b?.tipo === 'salao' ? 'o salão' : 'a barbearia');
+const textoNegocio = (b) => ({ salao: 'o salão', outro: 'o estabelecimento' }[b?.tipo] || 'a barbearia');
 
 router.get('/agendamentos/:id', async (req, res) => {
   const ag = await agendamentoComCodigo(req.params.id, req.query.c);
@@ -83,7 +83,7 @@ router.get('/:slug', carregarBarbearia, exigirAgendaAtiva, async (req, res) => {
     Servico.find({ barbeariaId: b._id, ativo: true }).select('nome descricao preco duracaoMinutos').sort({ ordem: 1, nome: 1 }).lean()
   );
   res.json({
-    nome: b.nome, slug: b.slug, tipo: b.tipo || 'barbearia', endereco: b.endereco, logoUrl: b.logoUrl, corPrimaria: b.corPrimaria,
+    nome: b.nome, slug: b.slug, tipo: b.tipo || 'barbearia', tipoNome: b.tipoNome || '', icone: b.icone || '', endereco: b.endereco, logoUrl: b.logoUrl, corPrimaria: b.corPrimaria,
     whatsapp: b.whatsapp, pagamentoModo: b.pagamento?.modo || 'manual',
     horarios: b.horarios, folgas: b.folgas,
     regras: {

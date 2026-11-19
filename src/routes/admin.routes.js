@@ -18,7 +18,7 @@ router.use(exigirLogin, exigirAdmin);
 
 // Barbearias + e-mail do dono (duas consultas simples)
 async function listarComDono(filtro = {}) {
-  const barbearias = await Barbearia.find(filtro).select('nome slug tipo whatsapp licenca createdAt').sort({ 'licenca.acessoAte': 1 }).lean();
+  const barbearias = await Barbearia.find(filtro).select('nome slug tipo tipoNome whatsapp licenca createdAt').sort({ 'licenca.acessoAte': 1 }).lean();
   const donos = await Usuario.find({ papel: 'dono', barbeariaId: { $in: barbearias.map((b) => b._id) } }).select('nome email barbeariaId').lean();
   const porBarbearia = new Map(donos.map((d) => [String(d.barbeariaId), { nome: d.nome, email: d.email }]));
   return barbearias.map((b) => ({ ...b, dono: porBarbearia.get(String(b._id)) || null }));
