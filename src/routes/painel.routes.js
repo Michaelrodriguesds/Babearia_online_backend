@@ -10,6 +10,7 @@ const { exigirLicencaAtiva } = require('../middlewares/licenca');
 const { validar } = require('../middlewares/validar');
 const { licencaDaBarbearia, statusLicenca } = require('../services/licenca');
 const agendamentos = require('../services/agendamentos');
+const { gerarRelatorio } = require('../services/relatorios');
 const { criptografar } = require('../utils/cripto');
 const { invalidar } = require('../utils/cache');
 const { ErroApp } = require('../utils/erros');
@@ -64,6 +65,7 @@ const barbeariaSchema = z.object({
   endereco: z.string().max(200).optional(),
   logoUrl: z.string().url().or(z.literal('')).optional(),
   corPrimaria: z.string().regex(/^#[0-9a-fA-F]{6}$/).optional(),
+  tipo: z.enum(['barbearia', 'salao']).optional(),
   horarios: z.array(horarioSchema).max(7).optional(),
   folgas: z.array(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).max(200).optional(),
   regras: z
@@ -192,7 +194,7 @@ router.get('/agendamentos', validar(listaSchema, 'query'), async (req, res) => {
 
   const [itens, total] = await Promise.all([
     Agendamento.find(filtro)
-      .select('tipo servicoNome clienteNome clienteWhatsapp motivo inicio fim valorTotal valorCobrado status expiraEm pagamento.modo pagamento.pagoEm pagamento.informadoEm')
+      .select('tipo servicoNome clienteNome clienteWhatsapp motivo inicio fim valorTotal valorCobrado status expiraEm pagamento.modo pagamento.pagoEm pagamento.informadoEm cancelamento')
       .sort({ inicio: 1 })
       .skip((pagina - 1) * limite)
       .limit(limite)
@@ -217,6 +219,16 @@ router.post('/agendamentos/:id/confirmar', async (req, res) => {
 
 router.post('/agendamentos/:id/cancelar', async (req, res) => {
   res.json(await agendamentos.cancelarAgendamento(await agendamentoDoBarbeiro(req), 'barbeiro'));
+});
+
+// Cliente não apareceu (ou desfazer a marcação)
+router.post('/agendamentos/:id/faltou', validar(z.object({ desfazer: z.boolean().optional() })), async (req, res) => {
+  res.json(await agendamentos.marcarFalta(await agendamentoDoBarbeiro(req), Boolean(req.validado.desfazer)));
+});
+
+// Números do negócio (movimento, clientes, serviços que mais rendem)
+router.get('/relatorios', validar(z.object({ periodo: z.enum(['30', '90', '365']).default('90') }), 'query'), async (req, res) => {
+  res.json(await gerarRelatorio(bid(req), { dias: Number(req.validado.periodo) }));
 });
 
 // ---------- Bloqueios de agenda ----------

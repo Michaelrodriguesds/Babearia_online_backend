@@ -14,8 +14,8 @@ const { diasTeste } = require('../config/env');
 const router = Router();
 const SLUGS_RESERVADOS = ['agendamentos', 'admin', 'api', 'painel', 'login', 'cadastro'];
 
-async function slugDisponivel(nome) {
-  const base = gerarSlug(nome) || 'barbearia';
+async function slugDisponivel(nome, tipo = 'barbearia') {
+  const base = gerarSlug(nome) || tipo;
   let slug = SLUGS_RESERVADOS.includes(base) ? `${base}-1` : base;
   for (let n = 2; await Barbearia.exists({ slug }); n++) slug = `${base}-${n}`;
   return slug;
@@ -27,6 +27,7 @@ const cadastroSchema = z.object({
   email: z.string().trim().toLowerCase().email(),
   senha: z.string().min(8, 'A senha precisa ter pelo menos 8 caracteres').max(100),
   whatsapp: z.string().regex(/^[\d\s()+-]{10,20}$/, 'WhatsApp inválido'),
+  tipo: z.enum(['barbearia', 'salao']).default('barbearia'),
 });
 
 // Cadastro: já começa com o mês grátis
@@ -36,7 +37,8 @@ router.post('/cadastro', limiteLogin, validar(cadastroSchema), async (req, res) 
 
   const barbearia = await Barbearia.create({
     nome: d.nomeBarbearia,
-    slug: await slugDisponivel(d.nomeBarbearia),
+    slug: await slugDisponivel(d.nomeBarbearia, d.tipo),
+    tipo: d.tipo,
     whatsapp: normalizarTelefone(d.whatsapp),
     licenca: { plano: 'teste', acessoAte: new Date(Date.now() + diasTeste * DIA_MS) },
   });
@@ -55,7 +57,7 @@ router.post('/cadastro', limiteLogin, validar(cadastroSchema), async (req, res) 
 
   res.status(201).json({
     token: gerarToken(usuario),
-    barbearia: { id: barbearia._id, nome: barbearia.nome, slug: barbearia.slug },
+    barbearia: { id: barbearia._id, nome: barbearia.nome, slug: barbearia.slug, tipo: barbearia.tipo },
     licenca: statusLicenca(barbearia.licenca),
   });
 });

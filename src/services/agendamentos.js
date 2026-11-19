@@ -93,6 +93,7 @@ async function criarAgendamento(barbearia, { servicoIds, inicio, nome, whatsapp,
     tipo: 'cliente',
     servicoId: escolha.servicos[0]._id,
     servicoIds: escolha.servicos.map((x) => x._id),
+    itens: escolha.servicos.map((x) => ({ servicoId: x._id, nome: x.nome, preco: x.preco, duracaoMinutos: x.duracaoMinutos })),
     servicoNome: escolha.nome,
     clienteId: cliente._id,
     clienteNome: cliente.nome,
@@ -220,21 +221,39 @@ async function informarPagamento(ag) {
 }
 
 /** Cancela e libera o horário */
-async function cancelarAgendamento(ag, por) {
+async function cancelarAgendamento(ag, por, motivo) {
   if (!['pendente', 'confirmado'].includes(ag.status)) {
     throw new ErroApp(409, `Este agendamento já está ${ag.status}.`);
   }
   const jaPago = Boolean(ag.pagamento?.pagoEm) && ag.valorCobrado > 0;
   ag.status = 'cancelado';
+  ag.cancelamento = { por, em: new Date(), motivo: motivo ? String(motivo).trim().slice(0, 200) : undefined };
   await ag.save();
   await Slot.deleteMany({ agendamentoId: ag._id });
 
   const barbearia = await Barbearia.findById(ag.barbeariaId).select('nome slug whatsapp').lean();
   notificar.canceladoParaCliente(barbearia, ag);
   if (por === 'cliente') {
-    notificar.avisoBarbeiro(barbearia, ag, jaPago ? 'Cliente cancelou (Pix já pago: combine a devolução)' : 'Cliente cancelou o agendamento');
+    const titulo = jaPago ? 'Cliente desistiu (Pix já pago: combine a devolução)' : 'Cliente desistiu do horário';
+    notificar.avisoBarbeiro(barbearia, ag, ag.cancelamento.motivo ? `${titulo}: ${ag.cancelamento.motivo}` : titulo);
   }
   return { status: ag.status, jaPago };
+}
+
+/** Barbeiro marca que o cliente não apareceu (ou desfaz) */
+async function marcarFalta(ag, desfazer = false) {
+  if (desfazer) {
+    if (ag.status !== 'faltou') throw new ErroApp(409, 'Este horário não está marcado como falta.');
+    ag.status = 'concluido';
+  } else {
+    const jaComecou = new Date(ag.inicio).getTime() <= Date.now();
+    if (!jaComecou || !['confirmado', 'concluido'].includes(ag.status)) {
+      throw new ErroApp(409, 'Só dá para marcar falta em horário confirmado que já começou.');
+    }
+    ag.status = 'faltou';
+  }
+  await ag.save();
+  return { status: ag.status };
 }
 
 /** Barbeiro bloqueia um período (folga, compromisso, almoço diferente...) */
@@ -266,5 +285,6 @@ async function removerBloqueio(barbeariaId, id) {
 }
 
 module.exports = {
+  marcarFalta,
   carregarServicos, criarAgendamento, confirmarPagamento, informarPagamento, cancelarAgendamento, criarBloqueio, removerBloqueio, calcularCobranca,
 };

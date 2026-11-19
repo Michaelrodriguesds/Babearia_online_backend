@@ -27,6 +27,8 @@ const barbeariaSchema = new Schema(
     endereco: { type: String, default: '' },
     logoUrl: { type: String, default: '' },
     corPrimaria: { type: String, default: '#111827' },
+    // Tipo de negócio: muda só o visual e as palavras (a lógica é a mesma)
+    tipo: { type: String, enum: ['barbearia', 'salao'], default: 'barbearia' },
 
     horarios: { type: [horarioSchema], default: horariosPadrao },
     folgas: { type: [String], default: [] }, // datas sem atendimento: 'AAAA-MM-DD'

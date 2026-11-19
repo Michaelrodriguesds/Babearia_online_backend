@@ -9,6 +9,7 @@ const STATUS = [
   'concluido', // horário já passou
   'bloqueado', // barbeiro bloqueou a agenda (tipo = bloqueio)
   'conflito', // Pix pago depois de expirar e o horário já tinha sido ocupado
+  'faltou', // cliente não apareceu (o barbeiro marca)
 ];
 
 const agendamentoSchema = new Schema(
@@ -19,6 +20,8 @@ const agendamentoSchema = new Schema(
 
     servicoId: { type: Schema.Types.ObjectId, ref: 'Servico' }, // primeiro serviço (compatibilidade)
     servicoIds: [{ type: Schema.Types.ObjectId, ref: 'Servico' }], // todos os serviços do agendamento
+    // preço de cada serviço no dia da reserva (para os relatórios não mudarem se o preço mudar)
+    itens: [{ _id: false, servicoId: Schema.Types.ObjectId, nome: String, preco: Number, duracaoMinutos: Number }],
     clienteId: { type: Schema.Types.ObjectId, ref: 'Cliente' },
     // cópias para não precisar de consultas extras ao listar
     servicoNome: String,
@@ -42,6 +45,12 @@ const agendamentoSchema = new Schema(
       pagoEm: Date,
       informadoEm: Date, // cliente tocou em "Já fiz o Pix" (modo chave Pix: o barbeiro confere e confirma)
       confirmadoPor: { type: String, enum: ['webhook', 'barbeiro', null], default: null },
+    },
+
+    cancelamento: {
+      por: { type: String, enum: ['cliente', 'barbeiro', null], default: null },
+      em: Date,
+      motivo: { type: String, maxlength: 200 },
     },
 
     codigoCancelamento: { type: String, select: false },

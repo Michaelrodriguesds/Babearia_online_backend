@@ -22,9 +22,23 @@ async function agendamentoComCodigo(id, codigo) {
 }
 
 // A tela do Pix consulta aqui a cada poucos segundos para saber se já foi pago
+// Regra de desistência: aguardando Pix pode sempre; confirmado só até X horas antes
+function regraDesistencia(ag, regras) {
+  const prazoHoras = Number(regras?.cancelamentoAteHoras) || 0;
+  const horasAntes = (new Date(ag.inicio).getTime() - Date.now()) / 3600000;
+  let podeDesistir = false;
+  if (ag.status === 'pendente') podeDesistir = true;
+  else if (ag.status === 'confirmado') podeDesistir = horasAntes >= prazoHoras;
+  return { prazoHoras, podeDesistir };
+}
+const textoNegocio = (b) => (b?.tipo === 'salao' ? 'o salão' : 'a barbearia');
+
 router.get('/agendamentos/:id', async (req, res) => {
   const ag = await agendamentoComCodigo(req.params.id, req.query.c);
+  const barbearia = await Barbearia.findById(ag.barbeariaId).select('regras tipo').lean();
+  const desistencia = regraDesistencia(ag, barbearia?.regras);
   res.json({
+    desistencia,
     id: ag._id, status: ag.status, servico: ag.servicoNome, inicio: ag.inicio, fim: ag.fim,
     valorTotal: ag.valorTotal, valorCobrado: ag.valorCobrado, expiraEm: ag.expiraEm,
     clienteNome: ag.clienteNome,
@@ -40,14 +54,15 @@ router.post('/agendamentos/:id/informar-pagamento', validar(z.object({ codigo: z
   res.json({ status: atualizado.status, pagamentoInformado: true, expiraEm: atualizado.expiraEm });
 });
 
-router.post('/agendamentos/:id/cancelar', validar(z.object({ codigo: z.string().min(10) })), async (req, res) => {
+const cancelarSchema = z.object({ codigo: z.string().min(10), motivo: z.string().trim().max(200).optional() });
+router.post('/agendamentos/:id/cancelar', validar(cancelarSchema), async (req, res) => {
   const ag = await agendamentoComCodigo(req.params.id, req.validado.codigo);
-  const barbearia = await Barbearia.findById(ag.barbeariaId).select('regras').lean();
-  const horasAntes = (new Date(ag.inicio).getTime() - Date.now()) / 3600000;
-  if (ag.status === 'confirmado' && horasAntes < barbearia.regras.cancelamentoAteHoras) {
-    throw new ErroApp(400, `O cancelamento só pode ser feito até ${barbearia.regras.cancelamentoAteHoras}h antes. Fale com a barbearia.`);
+  const barbearia = await Barbearia.findById(ag.barbeariaId).select('regras tipo').lean();
+  const { prazoHoras, podeDesistir } = regraDesistencia(ag, barbearia?.regras);
+  if (ag.status === 'confirmado' && !podeDesistir) {
+    throw new ErroApp(400, `Pelo app, só dá para desistir até ${prazoHoras}h antes do horário. Fale com ${textoNegocio(barbearia)} pelo WhatsApp.`);
   }
-  res.json(await agendamentos.cancelarAgendamento(ag, 'cliente'));
+  res.json(await agendamentos.cancelarAgendamento(ag, 'cliente', req.validado.motivo));
 });
 
 // ---------- Rotas da barbearia ----------
@@ -68,7 +83,7 @@ router.get('/:slug', carregarBarbearia, exigirAgendaAtiva, async (req, res) => {
     Servico.find({ barbeariaId: b._id, ativo: true }).select('nome descricao preco duracaoMinutos').sort({ ordem: 1, nome: 1 }).lean()
   );
   res.json({
-    nome: b.nome, slug: b.slug, endereco: b.endereco, logoUrl: b.logoUrl, corPrimaria: b.corPrimaria,
+    nome: b.nome, slug: b.slug, tipo: b.tipo || 'barbearia', endereco: b.endereco, logoUrl: b.logoUrl, corPrimaria: b.corPrimaria,
     whatsapp: b.whatsapp, pagamentoModo: b.pagamento?.modo || 'manual',
     horarios: b.horarios, folgas: b.folgas,
     regras: {

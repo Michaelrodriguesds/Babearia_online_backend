@@ -12,6 +12,7 @@ const { horariosLivres, liberarExpirados } = require('../src/services/disponibil
 const servicoAgenda = require('../src/services/agendamentos');
 const { statusLicenca, renovar, DIA_MS } = require('../src/services/licenca');
 const { somarPrecos, calcularCobranca } = require('../src/utils/dinheiro');
+const { gerarRelatorio, dividirProporcional } = require('../src/services/relatorios');
 
 // Lê o valor (campo 54) e confere o CRC de um Pix copia e cola
 function lerPix(codigo) {
@@ -181,6 +182,100 @@ async function main() {
     const rl = await servicoAgenda.criarAgendamento(comRegra({ cobranca: 'local' }), { servicoIds: [barba._id, sobr._id], inicio: livresL[livresL.length - 1].inicio, nome: 'Cliente I', whatsapp: '21999990001' });
     const agl = await Agendamento.findById(rl.id).lean();
     conferir(agl.status === 'confirmado' && agl.valorCobrado === 0 && !agl.pagamento.pixCopiaCola, 'pagar no local: confirmado direto, sem Pix');
+
+    console.log('\n10) Cliente desiste e barbeiro marca falta');
+    const livresD = await horariosLivres(b, 30, data2);
+    const rd = await servicoAgenda.criarAgendamento(b, { servicoIds: [barba._id], inicio: livresD[0].inicio, nome: 'Cliente J', whatsapp: '21911110000' });
+    const agd = await Agendamento.findById(rd.id);
+    conferir(agd.itens.length === 1 && agd.itens[0].preco === 15 && agd.itens[0].nome === 'Barba', 'reserva guarda o preço de cada serviço no dia');
+    await servicoAgenda.cancelarAgendamento(agd, 'cliente', '  Tive um imprevisto  ');
+    const agd2 = await Agendamento.findById(rd.id).lean();
+    conferir(agd2.status === 'cancelado' && agd2.cancelamento.por === 'cliente' && agd2.cancelamento.motivo === 'Tive um imprevisto', 'desistência guarda quem desistiu e o motivo');
+    conferir((await Slot.countDocuments({ agendamentoId: rd.id })) === 0, 'horário volta a ficar livre na hora');
+    const agFut = await Agendamento.create({ barbeariaId: b._id, tipo: 'cliente', clienteNome: 'Futuro', servicoNome: 'Corte', inicio: new Date(Date.now() + 3 * DIA_MS), fim: new Date(Date.now() + 3 * DIA_MS + 1800000), valorTotal: 40, status: 'confirmado' });
+    let erroFalta = null;
+    try { await servicoAgenda.marcarFalta(agFut); } catch (e) { erroFalta = e; }
+    conferir(erroFalta?.status === 409, 'não deixa marcar falta em horário que ainda não chegou');
+    const agPass = await Agendamento.create({ barbeariaId: b._id, tipo: 'cliente', clienteNome: 'Passado', servicoNome: 'Corte', inicio: new Date(Date.now() - 2 * 3600000), fim: new Date(Date.now() - 3600000), valorTotal: 40, status: 'concluido' });
+    conferir((await servicoAgenda.marcarFalta(agPass)).status === 'faltou', 'marca falta em horário que já passou');
+    conferir((await servicoAgenda.marcarFalta(agPass, true)).status === 'concluido', 'desfazer a falta volta para concluído');
+
+    console.log('\n11) Números do negócio (dados conhecidos, conta feita à mão)');
+    const p1 = dividirProporcional(100, [1, 1, 1]);
+    conferir(p1.join(',') === '34,33,33', 'divisão proporcional não perde centavo (R$ 1,00 em 3 = 0,34 + 0,33 + 0,33)');
+    conferir(dividirProporcional(4790, [4000, 790]).join(',') === '4000,790', 'R$ 47,90 dividido em Corte 40 + Sobrancelha 7,90');
+    const b2 = (await Barbearia.create({
+      nome: 'Teste Relatorio', slug: `teste-relatorio-${Date.now()}`, whatsapp: '5521999990001', horarios: todosOsDias,
+      licenca: { plano: 'teste', acessoAte: new Date(Date.now() + 30 * DIA_MS) },
+    })).toObject();
+    try {
+      const sC = await Servico.create({ barbeariaId: b2._id, nome: 'Corte', preco: 40, duracaoMinutos: 30 });
+      const sB = await Servico.create({ barbeariaId: b2._id, nome: 'Barba', preco: 15, duracaoMinutos: 30 });
+      const sS = await Servico.create({ barbeariaId: b2._id, nome: 'Sobrancelha', preco: 7.9, duracaoMinutos: 15 });
+      const cli = async (nome, zap, criado) => {
+        const c = await Cliente.create({ barbeariaId: b2._id, nome, whatsapp: zap });
+        await Cliente.collection.updateOne({ _id: c._id }, { $set: { createdAt: new Date(criado) } });
+        return c;
+      };
+      const ana = await cli('Ana', '5521900000001', '2025-12-01T12:00:00-03:00');
+      const bruno = await cli('Bruno', '5521900000002', '2025-12-01T12:00:00-03:00');
+      const carla = await cli('Carla', '5521900000003', '2026-11-18T08:00:00-03:00');
+      const it = (s) => ({ servicoId: s._id, nome: s.nome, preco: s.preco, duracaoMinutos: s.duracaoMinutos });
+      const marcar = (c, quando, status, extra = {}) => Agendamento.create({
+        barbeariaId: b2._id, tipo: 'cliente', clienteId: c?._id, clienteNome: c?.nome || extra.nome, clienteWhatsapp: c?.whatsapp,
+        inicio: new Date(quando), fim: new Date(new Date(quando).getTime() + 1800000), status, ...extra,
+      });
+      await Promise.all([
+        marcar(ana, '2026-11-14T10:00:00-03:00', 'concluido', { itens: [it(sC), it(sB)], servicoIds: [sC._id, sB._id], servicoNome: 'Corte + Barba', valorTotal: 55, valorCobrado: 55, pagamento: { pagoEm: new Date('2026-11-13T10:00:00-03:00') } }),
+        marcar(ana, '2026-10-31T10:00:00-03:00', 'concluido', { itens: [it(sC)], servicoIds: [sC._id], servicoNome: 'Corte', valorTotal: 40 }),
+        marcar(ana, '2026-10-17T11:00:00-03:00', 'concluido', { servicoId: sC._id, servicoNome: 'Corte', valorTotal: 40 }), // reserva antiga, sem itens
+        marcar(ana, '2025-12-10T10:00:00-03:00', 'concluido', { itens: [it(sC)], servicoNome: 'Corte', valorTotal: 40 }), // fora do período, dentro de 12 meses
+        marcar(bruno, '2026-09-29T18:00:00-03:00', 'concluido', { servicoIds: [sC._id, sS._id], servicoNome: 'Corte + Sobrancelha', valorTotal: 47.9 }), // antiga com 2 serviços
+        marcar(bruno, '2026-09-15T18:00:00-03:00', 'concluido', { itens: [it(sB)], servicoNome: 'Barba', valorTotal: 15 }),
+        marcar(carla, '2026-11-18T09:00:00-03:00', 'confirmado', { itens: [it(sS)], servicoNome: 'Sobrancelha', valorTotal: 7.9 }), // já começou: conta
+        marcar(carla, '2026-11-25T09:00:00-03:00', 'confirmado', { itens: [it(sC)], servicoNome: 'Corte', valorTotal: 40 }), // futuro: não conta
+        marcar(null, '2026-11-10T10:00:00-03:00', 'cancelado', { nome: 'Dani', valorTotal: 40, cancelamento: { por: 'cliente', motivo: 'Tive um imprevisto' } }),
+        marcar(null, '2026-11-06T10:00:00-03:00', 'cancelado', { nome: 'Gabi', valorTotal: 40, cancelamento: { por: 'barbeiro' } }),
+        marcar(null, '2026-11-12T10:00:00-03:00', 'faltou', { nome: 'Edu', valorTotal: 40 }),
+        marcar(null, '2026-11-05T10:00:00-03:00', 'expirado', { nome: 'Fabi', valorTotal: 40 }),
+        marcar(null, '2026-12-20T10:00:00-03:00', 'cancelado', { nome: 'Hugo', valorTotal: 40, cancelamento: { por: 'cliente', em: new Date('2026-11-17T09:00:00-03:00'), motivo: 'Vou marcar outro dia' } }), // horário futuro, desistiu ontem
+        marcar(null, '2026-12-21T10:00:00-03:00', 'cancelado', { nome: 'Iara', valorTotal: 40, cancelamento: { por: 'cliente', em: new Date('2026-11-19T09:00:00-03:00') } }), // desistência depois do "agora" do teste: não conta
+      ]);
+      const r = await gerarRelatorio(b2._id, { dias: 90, agora: new Date('2026-11-18T15:00:00-03:00') });
+      conferir(r.resumo.atendimentos === 6 && r.resumo.faturamento === 205.8, `faturamento R$ 205,80 em 6 atendimentos (veio R$ ${r.resumo.faturamento} em ${r.resumo.atendimentos})`);
+      conferir(r.resumo.ticketMedio === 34.3, `ticket médio R$ 34,30 (veio ${r.resumo.ticketMedio})`);
+      conferir(r.resumo.recebidoPix === 55, 'recebido no Pix R$ 55,00');
+      conferir(r.resumo.clientes === 3 && r.resumo.clientesNovos === 1, '3 clientes atendidos, 1 novo (Carla)');
+      const dia = (n) => r.porDiaSemana.find((d) => d.dia === n);
+      conferir(dia('Sábado').atendimentos === 3 && dia('Sábado').faturamento === 135, 'sábado: 3 atendimentos, R$ 135,00');
+      conferir(dia('Terça').atendimentos === 2 && dia('Terça').faturamento === 62.9, 'terça: 2 atendimentos, R$ 62,90');
+      conferir(dia('Quarta').atendimentos === 1 && dia('Segunda').atendimentos === 0, 'quarta: 1, segunda: 0');
+      conferir(r.porHora.map((h) => `${h.hora}:${h.atendimentos}`).join(' ') === '09h:1 10h:2 11h:1 18h:2', `horários: ${r.porHora.map((h) => `${h.hora}:${h.atendimentos}`).join(' ')}`);
+      const sv = (n) => r.servicos.find((x) => x.nome === n);
+      conferir(r.servicos[0].nome === 'Corte' && sv('Corte').quantidade === 4 && sv('Corte').faturamento === 160 && sv('Corte').percentual === 78, 'Corte é o que mais rende: 4x, R$ 160,00, 78%');
+      conferir(sv('Barba').faturamento === 30 && sv('Sobrancelha').faturamento === 15.8, 'Barba R$ 30,00 e Sobrancelha R$ 15,80 (reserva antiga dividida certo)');
+      conferir(Math.round(r.servicos.reduce((t, x) => t + x.faturamento * 100, 0)) === 20580, 'soma dos serviços bate com o faturamento');
+      conferir(r.clientesTop.map((c) => c.nome).join(',') === 'Ana,Bruno,Carla' && r.clientesTop[0].faturamento === 135 && r.clientesTop[0].visitas === 3, 'top clientes: Ana (R$ 135, 3 visitas), Bruno, Carla');
+      conferir(r.clientesTop[0].visitasTotal === 4 && r.clientesTop[0].faturamentoTotal === 175, 'Ana no ano: 4 visitas, R$ 175,00');
+      conferir(r.sumidos.length === 1 && r.sumidos[0].nome === 'Bruno' && r.sumidos[0].diasSemVir === 49, `clientes sumidos: só Bruno, há 49 dias (${r.sumidos.map((c) => `${c.nome}:${c.diasSemVir}`).join(',')})`);
+      conferir(r.perdas.desistencias === 2 && r.perdas.faltas === 1 && r.perdas.pixNaoPago === 1 && r.perdas.canceladosPeloNegocio === 1, `perdas: 2 desistências (uma de horário futuro), 1 falta, 1 Pix não pago, 1 cancelado pelo negócio (veio ${r.perdas.desistencias})`);
+      conferir(r.perdas.taxaPerda === 33 && r.perdas.motivos.length === 2, `taxa de perda 33% (3 de 9) e 2 motivos (veio ${r.perdas.taxaPerda}%)`);
+      conferir(r.retorno.diasEntreVisitas === 14 && r.retorno.clientesQueVoltam === 2, 'clientes que voltam: 2, a cada 14 dias');
+      const mes = (m) => r.meses.find((x) => x.mes === m);
+      conferir(r.meses.length === 12 && r.meses[0].mes === '2025-12' && mes('2025-12').atendimentos === 1, 'gráfico de 12 meses começa em dez/25');
+      conferir(mes('2026-11').faturamento === 62.9 && mes('2026-10').faturamento === 80 && mes('2026-09').faturamento === 62.9, 'meses: set R$ 62,90 · out R$ 80,00 · nov R$ 62,90');
+      conferir(r.dicas.some((d) => d.includes('sábado') && d.includes('quarta')), 'dica: dia mais forte sábado, mais fraco quarta');
+      conferir(r.dicas.some((d) => d.includes('10h')) && r.dicas.some((d) => d.includes('Corte')) && r.dicas.some((d) => d.includes('1 cliente fixo')), 'dicas de horário, serviço e cliente sumido');
+      const r30 = await gerarRelatorio(b2._id, { dias: 30, agora: new Date('2026-11-18T15:00:00-03:00') });
+      conferir(r30.resumo.atendimentos === 3 && r30.resumo.faturamento === 102.9, `últimos 30 dias: 3 atendimentos, R$ 102,90 (veio ${r30.resumo.faturamento})`);
+      const vazio = await gerarRelatorio(b._id ? new mongoose.Types.ObjectId() : null, { dias: 90 });
+      conferir(vazio.resumo.atendimentos === 0 && vazio.dicas.length === 0 && vazio.meses.length === 12, 'negócio sem atendimentos: tudo zerado, sem erro');
+    } finally {
+      await Promise.all([
+        Agendamento.deleteMany({ barbeariaId: b2._id }), Servico.deleteMany({ barbeariaId: b2._id }),
+        Cliente.deleteMany({ barbeariaId: b2._id }), Barbearia.deleteOne({ _id: b2._id }),
+      ]);
+    }
 
     console.log(`\n✅ ${passou} verificações passaram. Está tudo funcionando!\n`);
   } finally {
