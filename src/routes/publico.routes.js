@@ -8,6 +8,7 @@ const { validar } = require('../middlewares/validar');
 const { limiteAgendar } = require('../middlewares/limites');
 const { horariosLivres } = require('../services/disponibilidade');
 const agendamentos = require('../services/agendamentos');
+const { vitrineDaLoja } = require('../services/lojaOnline');
 const { comCacheSWR } = require('../utils/cache');
 const { ErroApp } = require('../utils/erros');
 const { fuso } = require('../config/env');
@@ -83,7 +84,7 @@ router.get('/:slug', carregarBarbearia, exigirAgendaAtiva, async (req, res) => {
     Servico.find({ barbeariaId: b._id, ativo: true }).select('nome descricao preco duracaoMinutos').sort({ ordem: 1, nome: 1 }).lean()
   );
   res.json({
-    nome: b.nome, slug: b.slug, tipo: b.tipo || 'barbearia', tipoNome: b.tipoNome || '', icone: b.icone || '', endereco: b.endereco, logoUrl: b.logoUrl, corPrimaria: b.corPrimaria,
+    nome: b.nome, slug: b.slug, tipo: b.tipo || 'barbearia', tipoNome: b.tipoNome || '', icone: b.icone || '', temLoja: Boolean(b.lojaSlug), endereco: b.endereco, logoUrl: b.logoUrl, corPrimaria: b.corPrimaria,
     whatsapp: b.whatsapp, pagamentoModo: b.pagamento?.modo || 'manual',
     horarios: b.horarios, folgas: b.folgas,
     regras: {
@@ -107,6 +108,13 @@ const dispSchema = z.object({
 
 // Horários livres: SEM cache, sempre consulta o banco (precisa estar exato).
 // Usa o tempo de TODOS os serviços escolhidos somados.
+// Produtos da loja online do negócio (rodapé da agenda). Vazio se não tiver loja ou se ela não responder.
+router.get('/:slug/loja-online', carregarBarbearia, exigirAgendaAtiva, async (req, res) => {
+  const vitrine = await vitrineDaLoja(req.barbearia.lojaSlug);
+  res.set('Cache-Control', 'public, max-age=300');
+  res.json(vitrine || { produtos: [] });
+});
+
 router.get('/:slug/disponibilidade', carregarBarbearia, exigirAgendaAtiva, validar(dispSchema, 'query'), async (req, res) => {
   const { servicoIds, servicoId, data } = req.validado;
   const escolha = await agendamentos.carregarServicos(req.barbearia._id, servicoIds || [servicoId]);

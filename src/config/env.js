@@ -28,6 +28,12 @@ module.exports = {
   diasTeste: Number(process.env.DIAS_TESTE) || 30,
   diasPlano: Number(process.env.DIAS_PLANO) || 30,
   suporteWhatsapp: process.env.SUPORTE_WHATSAPP || '',
+
+  // Loja online (seu outro sistema): a agenda mostra alguns produtos da loja do negócio
+  lojaOnline: {
+    apiUrl: (process.env.LOJA_API_URL || 'https://loja-online-backend-cx0w.onrender.com').trim().replace(/\/+$/, ''),
+    siteUrl: (process.env.LOJA_SITE_URL || 'https://virtualloja.netlify.app').trim().replace(/\/+$/, ''),
+  },
   whatsapp: {
     token: process.env.WHATSAPP_TOKEN || '',
     phoneNumberId: process.env.WHATSAPP_PHONE_NUMBER_ID || '',

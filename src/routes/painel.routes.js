@@ -11,11 +11,12 @@ const { validar } = require('../middlewares/validar');
 const { licencaDaBarbearia, statusLicenca } = require('../services/licenca');
 const agendamentos = require('../services/agendamentos');
 const { gerarRelatorio } = require('../services/relatorios');
-const { criptografar } = require('../utils/cripto');
+const lojaOnline = require('../services/lojaOnline');
 const { invalidar } = require('../utils/cache');
+const { criptografar } = require('../utils/cripto');
 const { ErroApp } = require('../utils/erros');
 const { normalizarTelefone } = require('../utils/formatos');
-const { fuso, frontendUrls, suporteWhatsapp, vapid } = require('../config/env');
+const { fuso, frontendUrls, suporteWhatsapp, vapid, lojaOnline: configLoja } = require('../config/env');
 
 const router = Router();
 router.use(exigirLogin, exigirDono);
@@ -226,6 +227,30 @@ router.post('/agendamentos/:id/cancelar', async (req, res) => {
 // Cliente não apareceu (ou desfazer a marcação)
 router.post('/agendamentos/:id/faltou', validar(z.object({ desfazer: z.boolean().optional() })), async (req, res) => {
   res.json(await agendamentos.marcarFalta(await agendamentoDoBarbeiro(req), Boolean(req.validado.desfazer)));
+});
+
+// Loja online ligada à agenda (os produtos aparecem no rodapé da página de agendamento)
+router.get('/loja-online', async (req, res) => {
+  const b = await Barbearia.findById(bid(req)).select('lojaSlug').lean();
+  if (!b?.lojaSlug) return res.json({ ligada: false, siteUrl: configLoja.siteUrl });
+  const vitrine = await lojaOnline.vitrineDaLoja(b.lojaSlug);
+  res.json({ ligada: true, slug: b.lojaSlug, siteUrl: configLoja.siteUrl, url: vitrine.url, nome: vitrine.nome, produtos: vitrine.produtos.length });
+});
+
+router.put('/loja-online', validar(z.object({ link: z.string().trim().max(300) })), async (req, res) => {
+  const slug = lojaOnline.extrairSlug(req.validado.link);
+  const b = await Barbearia.findById(bid(req)).select('lojaSlug slug').lean();
+  if (b?.lojaSlug) invalidar(`lojaOnline:${b.lojaSlug}`);
+  if (!slug) {
+    await Barbearia.updateOne({ _id: bid(req) }, { $set: { lojaSlug: '' } });
+    invalidar(`publico:${b?.slug}`);
+    return res.json({ ligada: false });
+  }
+  const conferida = await lojaOnline.conferirLoja(slug);
+  await Barbearia.updateOne({ _id: bid(req) }, { $set: { lojaSlug: slug } });
+  invalidar(`publico:${b?.slug}`);
+  invalidar(`lojaOnline:${slug}`);
+  res.json({ ligada: true, slug, nome: conferida.nome, disponivel: conferida.disponivel, url: `${configLoja.siteUrl}/loja/${slug}` });
 });
 
 // Números do negócio (movimento, clientes, serviços que mais rendem)

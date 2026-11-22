@@ -31,6 +31,7 @@ const barbeariaSchema = new Schema(
     tipo: { type: String, enum: ['barbearia', 'salao', 'outro'], default: 'barbearia' },
     tipoNome: { type: String, trim: true, maxlength: 40, default: '' }, // "outro": o dono escreve (ex.: Estúdio de tatuagem)
     // ícone da aba e do app no celular (mesma lista de frontend/src/icones.js). Vazio = padrão do tipo
+    lojaSlug: { type: String, trim: true, lowercase: true, maxlength: 80, default: '' }, // loja online ligada (vitrine no rodapé da agenda)
     icone: { type: String, enum: [...['poste', 'brilho', 'tesoura', 'flor', 'massagem', 'tatuagem', 'pet', 'academia', 'saude', 'foto', 'calendario'], ''], default: '' },
 
     horarios: { type: [horarioSchema], default: horariosPadrao },
